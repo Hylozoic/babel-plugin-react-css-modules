@@ -15,6 +15,7 @@ import Parser from 'postcss-modules-parser';
 import Scope from 'postcss-modules-scope';
 import Values from 'postcss-modules-values';
 import Nested from 'postcss-nested';
+import ResolvePath from 'postcss-modules-resolve-path';
 import type {
   StyleModuleMapType
 } from './types';
@@ -48,7 +49,8 @@ const getTokens = (runner, cssSourceFilePath: string, filetypes): StyleModuleMap
 type OptionsType = {|
   filetypes: Object,
   generateScopedName?: string,
-  context?: string
+  context?: string,
+  searchPaths?: Array<string>
 |};
 
 export default (cssSourceFilePath: string, options: OptionsType): StyleModuleMapType => {
@@ -60,8 +62,10 @@ export default (cssSourceFilePath: string, options: OptionsType): StyleModuleMap
   });
 
   const fetch = (to: string, from: string) => {
-    const fromDirectoryPath = dirname(from);
-    const toPath = resolve(fromDirectoryPath, to);
+    const inSearchPaths = options.searchPaths && options.searchPaths.some((prefix) => {
+      return to.startsWith(prefix);
+    });
+    const toPath = inSearchPaths ? to : resolve(dirname(from), to);
 
     return getTokens(runner, toPath, options.filetypes);
   };
@@ -70,6 +74,9 @@ export default (cssSourceFilePath: string, options: OptionsType): StyleModuleMap
     Nested,
     Values,
     LocalByDefault,
+    new ResolvePath({
+      paths: options.searchPaths
+    }),
     ExtractImports,
     new Scope({
       generateScopedName: scopedName

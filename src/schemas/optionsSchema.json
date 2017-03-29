@@ -21,6 +21,9 @@
     },
     "exclude": {
       "type": "string"
+    },
+    "searchPaths": {
+      "type": "array"
     }
   },
   "type": "object"
