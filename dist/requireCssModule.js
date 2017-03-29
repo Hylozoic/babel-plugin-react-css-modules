@@ -40,6 +40,10 @@ var _postcssNested = require('postcss-nested');
 
 var _postcssNested2 = _interopRequireDefault(_postcssNested);
 
+var _postcssModulesResolvePath = require('postcss-modules-resolve-path');
+
+var _postcssModulesResolvePath2 = _interopRequireDefault(_postcssModulesResolvePath);
+
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 const getTokens = (runner, cssSourceFilePath, filetypes) => {
@@ -74,13 +78,17 @@ exports.default = (cssSourceFilePath, options) => {
   });
 
   const fetch = (to, from) => {
-    const fromDirectoryPath = (0, _path.dirname)(from);
-    const toPath = (0, _path.resolve)(fromDirectoryPath, to);
+    const inSearchPaths = options.searchPaths && options.searchPaths.some(prefix => {
+      return to.startsWith(prefix);
+    });
+    const toPath = inSearchPaths ? to : (0, _path.resolve)((0, _path.dirname)(from), to);
 
     return getTokens(runner, toPath, options.filetypes);
   };
 
-  const plugins = [_postcssNested2.default, _postcssModulesValues2.default, _postcssModulesLocalByDefault2.default, _postcssModulesExtractImports2.default, new _postcssModulesScope2.default({
+  const plugins = [_postcssNested2.default, _postcssModulesValues2.default, _postcssModulesLocalByDefault2.default, new _postcssModulesResolvePath2.default({
+    paths: options.searchPaths
+  }), _postcssModulesExtractImports2.default, new _postcssModulesScope2.default({
     generateScopedName: scopedName
   }), new _postcssModulesParser2.default({
     fetch
