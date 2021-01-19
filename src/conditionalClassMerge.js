@@ -4,7 +4,9 @@ import {
   binaryExpression,
   conditionalExpression,
   stringLiteral
-} from 'babel-types';
+} from '@babel/types';
+
+/* eslint-disable flowtype/no-weak-types */
 
 export default (
   classNameExpression: any,

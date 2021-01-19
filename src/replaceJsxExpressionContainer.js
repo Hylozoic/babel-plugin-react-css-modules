@@ -1,4 +1,5 @@
 // @flow
+
 import BabelTypes, {
   binaryExpression,
   Identifier,
@@ -8,64 +9,81 @@ import BabelTypes, {
   JSXAttribute,
   jSXExpressionContainer,
   jSXIdentifier
-} from 'babel-types';
+} from '@babel/types';
+import type {
+  GetClassNameOptionsType
+} from './types';
 import conditionalClassMerge from './conditionalClassMerge';
+import createObjectExpression from './createObjectExpression';
+import optionsDefaults from './schemas/optionsDefaults';
 
 export default (
   t: BabelTypes,
+  // eslint-disable-next-line flowtype/no-weak-types
   path: Object,
-  styleNameAttribute: JSXAttribute,
+  sourceAttribute: JSXAttribute,
+  destinationName: string,
   importedHelperIndentifier: Identifier,
-  styleModuleImportMapIdentifier: Identifier
+  styleModuleImportMapIdentifier: Identifier,
+  options: GetClassNameOptionsType
 ): void => {
-  const expressionContainerValue = styleNameAttribute.value;
-  const classNameAttribute = path.node.openingElement.attributes
+  const expressionContainerValue = sourceAttribute.value;
+  const destinationAttribute = path.node.openingElement.attributes
     .find((attribute) => {
-      return typeof attribute.name !== 'undefined' && attribute.name.name === 'className';
+      return typeof attribute.name !== 'undefined' && attribute.name.name === destinationName;
     });
 
-  if (classNameAttribute) {
-    path.node.openingElement.attributes.splice(path.node.openingElement.attributes.indexOf(classNameAttribute), 1);
+  if (destinationAttribute) {
+    path.node.openingElement.attributes.splice(path.node.openingElement.attributes.indexOf(destinationAttribute), 1);
   }
 
-  path.node.openingElement.attributes.splice(path.node.openingElement.attributes.indexOf(styleNameAttribute), 1);
+  path.node.openingElement.attributes.splice(path.node.openingElement.attributes.indexOf(sourceAttribute), 1);
+
+  const args = [
+    expressionContainerValue.expression,
+    styleModuleImportMapIdentifier
+  ];
+
+  // Only provide options argument if the options are something other than default
+  // This helps save a few bits in the generated user code
+  if (options.handleMissingStyleName !== optionsDefaults.handleMissingStyleName ||
+    options.autoResolveMultipleImports !== optionsDefaults.autoResolveMultipleImports) {
+    args.push(createObjectExpression(t, options));
+  }
 
   const styleNameExpression = t.callExpression(
-    importedHelperIndentifier,
-    [
-      expressionContainerValue.expression,
-      styleModuleImportMapIdentifier
-    ]
+    t.clone(importedHelperIndentifier),
+    args
   );
 
-  if (classNameAttribute) {
-    if (isStringLiteral(classNameAttribute.value)) {
+  if (destinationAttribute) {
+    if (isStringLiteral(destinationAttribute.value)) {
       path.node.openingElement.attributes.push(jSXAttribute(
-        jSXIdentifier('className'),
+        jSXIdentifier(destinationName),
         jSXExpressionContainer(
           binaryExpression(
             '+',
-            t.stringLiteral(classNameAttribute.value.value + ' '),
+            t.stringLiteral(destinationAttribute.value.value + ' '),
             styleNameExpression
           )
         )
       ));
-    } else if (isJSXExpressionContainer(classNameAttribute.value)) {
+    } else if (isJSXExpressionContainer(destinationAttribute.value)) {
       path.node.openingElement.attributes.push(jSXAttribute(
-        jSXIdentifier('className'),
+        jSXIdentifier(destinationName),
         jSXExpressionContainer(
           conditionalClassMerge(
-            classNameAttribute.value.expression,
+            destinationAttribute.value.expression,
             styleNameExpression
           )
         )
       ));
     } else {
-      throw new Error('Unexpected attribute value.');
+      throw new Error('Unexpected attribute value: ' + destinationAttribute.value);
     }
   } else {
     path.node.openingElement.attributes.push(jSXAttribute(
-      jSXIdentifier('className'),
+      jSXIdentifier(destinationName),
       jSXExpressionContainer(
         styleNameExpression
       )

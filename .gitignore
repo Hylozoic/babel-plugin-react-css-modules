@@ -5,8 +5,10 @@ node_modules
 !.babelrc
 !.editorconfig
 !.eslintrc
+!.eslintignore
 !.flowconfig
 !.gitignore
 !.npmignore
 !.README
 !.travis.yml
+/package-lock.json

@@ -4,16 +4,26 @@ import {
   dirname,
   resolve
 } from 'path';
-import babelPluginJsxSyntax from 'babel-plugin-syntax-jsx';
-import BabelTypes from 'babel-types';
+import babelPluginJsxSyntax from '@babel/plugin-syntax-jsx';
+import BabelTypes from '@babel/types';
+import ajvKeywords from 'ajv-keywords';
 import Ajv from 'ajv';
 import optionsSchema from './schemas/optionsSchema.json';
+import optionsDefaults from './schemas/optionsDefaults';
 import createObjectExpression from './createObjectExpression';
 import requireCssModule from './requireCssModule';
 import resolveStringLiteral from './resolveStringLiteral';
 import replaceJsxExpressionContainer from './replaceJsxExpressionContainer';
+import attributeNameExists from './attributeNameExists';
+import createSpreadMapper from './createSpreadMapper';
+import handleSpreadClassName from './handleSpreadClassName';
 
-const ajv = new Ajv();
+const ajv = new Ajv({
+  // eslint-disable-next-line id-match
+  $data: true
+});
+
+ajvKeywords(ajv);
 
 const validate = ajv.compile(optionsSchema);
 
@@ -23,6 +33,8 @@ export default ({
   types: BabelTypes
 }) => {
   const filenameMap = {};
+
+  let skip = false;
 
   const setupFileForRuntimeResolution = (path, filename) => {
     const programPath = path.findParent((parentPath) => {
@@ -59,7 +71,7 @@ export default ({
         ]
       )
     );
-    // eslint-disable-next-line
+    // eslint-disable-next-line no-console
     // console.log('setting up', filename, util.inspect(filenameMap,{depth: 5}))
   };
 
@@ -97,10 +109,14 @@ export default ({
 
     const hotAcceptStatement = t.ifStatement(test, consequent);
 
-    firstNonImportDeclarationNode.insertBefore(hotAcceptStatement);
+    if (firstNonImportDeclarationNode) {
+      firstNonImportDeclarationNode.insertBefore(hotAcceptStatement);
+    } else {
+      programPath.pushContainer('body', hotAcceptStatement);
+    }
   };
 
-  const getTargetResourcePath = (path: Object, stats:Object) => {
+  const getTargetResourcePath = (path: *, stats: *) => {
     const targetFileDirectoryPath = dirname(stats.file.opts.filename);
 
     if (path.node.source.value.startsWith('.')) {
@@ -110,7 +126,11 @@ export default ({
     return require.resolve(path.node.source.value);
   };
 
-  const notForPlugin = (path: Object, stats: Object) => {
+  const isFilenameExcluded = (filename, exclude) => {
+    return filename.match(new RegExp(exclude));
+  };
+
+  const notForPlugin = (path: *, stats: *) => {
     stats.opts.filetypes = stats.opts.filetypes || {};
 
     const extension = path.node.source.value.lastIndexOf('.') > -1 ? path.node.source.value.substr(path.node.source.value.lastIndexOf('.')) : null;
@@ -119,7 +139,9 @@ export default ({
       return true;
     }
 
-    if (stats.opts.exclude && getTargetResourcePath(path, stats).match(new RegExp(stats.opts.exclude))) {
+    const filename = getTargetResourcePath(path, stats);
+
+    if (stats.opts.exclude && isFilenameExcluded(filename, stats.opts.exclude)) {
       return true;
     }
 
@@ -129,8 +151,8 @@ export default ({
   return {
     inherits: babelPluginJsxSyntax,
     visitor: {
-      ImportDeclaration (path: Object, stats: Object): void {
-        if (notForPlugin(path, stats)) {
+      ImportDeclaration (path: *, stats: *): void {
+        if (skip || notForPlugin(path, stats)) {
           return;
         }
 
@@ -140,8 +162,8 @@ export default ({
         let styleImportName: string;
 
         if (path.node.specifiers.length === 0) {
-          // eslint-disable-next-line no-process-env
-          styleImportName = process.env.NODE_ENV === 'test' ? 'random-test' : 'random-' + Math.random();
+          // use imported file path as import name
+          styleImportName = path.node.source.value;
         } else if (path.node.specifiers.length === 1) {
           styleImportName = path.node.specifiers[0].local.name;
         } else {
@@ -161,42 +183,85 @@ export default ({
         if (stats.opts.webpackHotModuleReloading) {
           addWebpackHotModuleAccept(path);
         }
+
+        if (stats.opts.removeImport) {
+          path.remove();
+        }
       },
-      JSXElement (path: Object, stats: Object): void {
+      JSXElement (path: *, stats: *): void {
+        if (skip) {
+          return;
+        }
+
         const filename = stats.file.opts.filename;
-        const styleNameAttribute = path.node.openingElement.attributes
-          .find((attribute) => {
-            return typeof attribute.name !== 'undefined' && attribute.name.name === 'styleName';
+
+        if (stats.opts.exclude && isFilenameExcluded(filename, stats.opts.exclude)) {
+          return;
+        }
+
+        let attributeNames = optionsDefaults.attributeNames;
+
+        if (stats.opts && stats.opts.attributeNames) {
+          attributeNames = Object.assign({}, attributeNames, stats.opts.attributeNames);
+        }
+
+        const attributes = path.node.openingElement.attributes
+          .filter((attribute) => {
+            return typeof attribute.name !== 'undefined' && typeof attributeNames[attribute.name.name] === 'string';
           });
 
-        if (!styleNameAttribute) {
+        if (attributes.length === 0) {
           return;
         }
 
-        if (t.isStringLiteral(styleNameAttribute.value)) {
-          resolveStringLiteral(
-            path,
-            filenameMap[filename].styleModuleImportMap,
-            styleNameAttribute
-          );
+        const {
+          handleMissingStyleName = optionsDefaults.handleMissingStyleName,
+          autoResolveMultipleImports = optionsDefaults.autoResolveMultipleImports
+        } = stats.opts || {};
 
-          return;
-        }
+        const spreadMap = createSpreadMapper(path, stats);
 
-        if (t.isJSXExpressionContainer(styleNameAttribute.value)) {
-          if (!filenameMap[filename].importedHelperIndentifier) {
-            setupFileForRuntimeResolution(path, filename);
+        for (const attribute of attributes) {
+          const destinationName = attributeNames[attribute.name.name];
+
+          const options = {
+            autoResolveMultipleImports,
+            handleMissingStyleName
+          };
+
+          if (t.isStringLiteral(attribute.value)) {
+            resolveStringLiteral(
+              path,
+              filenameMap[filename].styleModuleImportMap,
+              attribute,
+              destinationName,
+              options
+            );
+          } else if (t.isJSXExpressionContainer(attribute.value)) {
+            if (!filenameMap[filename].importedHelperIndentifier) {
+              setupFileForRuntimeResolution(path, filename);
+            }
+            replaceJsxExpressionContainer(
+              t,
+              path,
+              attribute,
+              destinationName,
+              filenameMap[filename].importedHelperIndentifier,
+              filenameMap[filename].styleModuleImportMapIdentifier,
+              options
+            );
           }
-          replaceJsxExpressionContainer(
-            t,
-            path,
-            styleNameAttribute,
-            filenameMap[filename].importedHelperIndentifier,
-            filenameMap[filename].styleModuleImportMapIdentifier
-          );
+
+          if (spreadMap[destinationName]) {
+            handleSpreadClassName(
+              path,
+              destinationName,
+              spreadMap[destinationName]
+            );
+          }
         }
       },
-      Program (path: Object, stats: Object): void {
+      Program (path: *, stats: *): void {
         if (!validate(stats.opts)) {
           // eslint-disable-next-line no-console
           console.error(validate.errors);
@@ -209,6 +274,10 @@ export default ({
         filenameMap[filename] = {
           styleModuleImportMap: {}
         };
+
+        if (stats.opts.skip && !attributeNameExists(path, stats)) {
+          skip = true;
+        }
       }
     }
   };

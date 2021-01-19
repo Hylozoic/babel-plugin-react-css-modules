@@ -17,20 +17,71 @@ import Values from 'postcss-modules-values';
 import Nested from 'postcss-nested';
 import ResolvePath from 'postcss-modules-resolve-path';
 import type {
+  GenerateScopedNameConfigurationType,
   StyleModuleMapType
 } from './types';
+import optionsDefaults from './schemas/optionsDefaults';
 
-const getTokens = (runner, cssSourceFilePath: string, filetypes): StyleModuleMapType => {
+type FiletypeOptionsType = {|
+  +syntax: string,
+  +plugins?: $ReadOnlyArray<string | $ReadOnlyArray<[string, mixed]>>
+|};
+
+type FiletypesConfigurationType = {
+  [key: string]: FiletypeOptionsType
+};
+
+type OptionsType = {|
+  filetypes: FiletypesConfigurationType,
+  generateScopedName?: GenerateScopedNameConfigurationType,
+  context?: string,
+  searchPaths?: Array<string>
+|};
+
+const getFiletypeOptions = (cssSourceFilePath: string, filetypes: FiletypesConfigurationType): ?FiletypeOptionsType => {
   const extension = cssSourceFilePath.substr(cssSourceFilePath.lastIndexOf('.'));
-  const syntax = filetypes[extension];
+  const filetype = filetypes ? filetypes[extension] : null;
 
+  return filetype;
+};
+
+// eslint-disable-next-line flowtype/no-weak-types
+const getSyntax = (filetypeOptions: FiletypeOptionsType): ?(Function | Object) => {
+  if (!filetypeOptions || !filetypeOptions.syntax) {
+    return null;
+  }
+
+  // eslint-disable-next-line import/no-dynamic-require, global-require
+  return require(filetypeOptions.syntax);
+};
+
+// eslint-disable-next-line flowtype/no-weak-types
+const getExtraPlugins = (filetypeOptions: ?FiletypeOptionsType): $ReadOnlyArray<*> => {
+  if (!filetypeOptions || !filetypeOptions.plugins) {
+    return [];
+  }
+
+  return filetypeOptions.plugins.map((plugin) => {
+    if (Array.isArray(plugin)) {
+      const [pluginName, pluginOptions] = plugin;
+
+      // eslint-disable-next-line import/no-dynamic-require, global-require
+      return require(pluginName)(pluginOptions);
+    }
+
+    // eslint-disable-next-line import/no-dynamic-require, global-require
+    return require(plugin);
+  });
+};
+
+const getTokens = (runner, cssSourceFilePath: string, filetypeOptions: ?FiletypeOptionsType): StyleModuleMapType => {
+  // eslint-disable-next-line flowtype/no-weak-types
   const options: Object = {
     from: cssSourceFilePath
   };
 
-  if (syntax) {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
-    options.syntax = require(syntax);
+  if (filetypeOptions) {
+    options.syntax = getSyntax(filetypeOptions);
   }
 
   const lazyResult = runner
@@ -46,20 +97,21 @@ const getTokens = (runner, cssSourceFilePath: string, filetypes): StyleModuleMap
   return lazyResult.root.tokens;
 };
 
-type OptionsType = {|
-  filetypes: Object,
-  generateScopedName?: string,
-  context?: string,
-  searchPaths?: Array<string>
-|};
-
 export default (cssSourceFilePath: string, options: OptionsType): StyleModuleMapType => {
   // eslint-disable-next-line prefer-const
   let runner;
 
-  const scopedName = genericNames(options.generateScopedName || '[path]___[name]__[local]___[hash:base64:5]', {
-    context: options.context || process.cwd()
-  });
+  let generateScopedName;
+
+  if (options.generateScopedName && typeof options.generateScopedName === 'function') {
+    generateScopedName = options.generateScopedName;
+  } else {
+    generateScopedName = genericNames(options.generateScopedName || optionsDefaults.generateScopedName, {
+      context: options.context || process.cwd()
+    });
+  }
+
+  const filetypeOptions = getFiletypeOptions(cssSourceFilePath, options.filetypes);
 
   const fetch = (to: string, from: string) => {
     const inSearchPaths = options.searchPaths && options.searchPaths.some((prefix) => {
@@ -67,11 +119,13 @@ export default (cssSourceFilePath: string, options: OptionsType): StyleModuleMap
     });
     const toPath = inSearchPaths ? to : resolve(dirname(from), to);
 
-    return getTokens(runner, toPath, options.filetypes);
+    return getTokens(runner, toPath, filetypeOptions);
   };
 
+  const extraPlugins = getExtraPlugins(filetypeOptions);
+
   const plugins = [
-    Nested,
+    ...extraPlugins,
     Values,
     LocalByDefault,
     new ResolvePath({
@@ -79,7 +133,7 @@ export default (cssSourceFilePath: string, options: OptionsType): StyleModuleMap
     }),
     ExtractImports,
     new Scope({
-      generateScopedName: scopedName
+      generateScopedName
     }),
     new Parser({
       fetch
@@ -88,5 +142,5 @@ export default (cssSourceFilePath: string, options: OptionsType): StyleModuleMap
 
   runner = postcss(plugins);
 
-  return getTokens(runner, cssSourceFilePath, options.filetypes);
+  return getTokens(runner, cssSourceFilePath, filetypeOptions);
 };

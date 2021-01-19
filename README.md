@@ -1,5 +1,6 @@
 # babel-plugin-react-css-modules
 
+[![GitSpo Mentions](https://gitspo.com/badges/mentions/gajus/babel-plugin-react-css-modules?style=flat-square)](https://gitspo.com/mentions/gajus/babel-plugin-react-css-modules)
 [![Travis build status](http://img.shields.io/travis/gajus/babel-plugin-react-css-modules/master.svg?style=flat-square)](https://travis-ci.org/gajus/babel-plugin-react-css-modules)
 [![NPM version](http://img.shields.io/npm/v/babel-plugin-react-css-modules.svg?style=flat-square)](https://www.npmjs.org/package/babel-plugin-react-css-modules)
 [![Canonical Code Style](https://img.shields.io/badge/code%20style-canonical-blue.svg?style=flat-square)](https://github.com/gajus/canonical)
@@ -21,7 +22,9 @@ In contrast to [`react-css-modules`](https://github.com/gajus/react-css-modules)
   * [Named reference](#named-reference)
 * [Configuration](#configuration)
   * [Configurate syntax loaders](#configurate-syntax-loaders)
+  * [Custom Attribute Mapping](#custom-attribute-mapping)
 * [Installation](#installation)
+  * [React Native](#react-native)
   * [Demo](#demo)
 * [Example transpilations](#example-transpilations)
   * [Anonymous `styleName` resolution](#anonymous-stylename-resolution)
@@ -30,6 +33,7 @@ In contrast to [`react-css-modules`](https://github.com/gajus/react-css-modules)
 * [Limitations](#limitations)
 * [Have a question or want to suggest an improvement?](#have-a-question-or-want-to-suggest-an-improvement)
 * [FAQ](#faq)
+  * [How to migrate from react-css-modules to babel-plugin-react-css-modules?](#how-to-migrate-from-react-css-modules-to-babel-plugin-react-css-modules)
   * [How to reference multiple CSS modules?](#how-to-reference-multiple-css-modules)
   * [How to live reload the CSS?](#hot-to-live-reload-the-css)
 
@@ -72,7 +76,7 @@ and a corresponding CSS file that matches those CSS classes.
 
 Awesome!
 
-However, there are several several disadvantages of using CSS modules this way:
+However, there are several disadvantages of using CSS modules this way:
 
 * You have to use `camelCase` CSS class names.
 * You have to use `styles` object whenever constructing a `className`.
@@ -163,25 +167,67 @@ NODE_ENV=production ./test
 1. Iterates through all [JSX](https://facebook.github.io/react/docs/jsx-in-depth.html) element declarations.
 1. Parses the `styleName` attribute value into anonymous and named CSS module references.
 1. Finds the CSS class name matching the CSS module reference:
-  * If `styleName` value is a string literal, generates a string literal value.
-  * If `styleName` value is a [`jSXExpressionContainer`](https://github.com/babel/babel/tree/master/packages/babel-types#jsxexpressioncontainer), uses a helper function ([`getClassName`](./src/getClassName.js)) to construct the `className` value at the runtime.
+    * If `styleName` value is a string literal, generates a string literal value.
+    * If `styleName` value is a [`jSXExpressionContainer`](https://babeljs.io/docs/en/next/babel-types.html#jsxexpressioncontainer), uses a helper function ([`getClassName`](./src/getClassName.js)) to construct the `className` value at the runtime.
 1. Removes the `styleName` attribute from the element.
 1. Appends the resulting `className` to the existing `className` value (creates `className` attribute if one does not exist).
 
 ## Configuration
 
-|Name|Description|Default|
-|---|---|---|
-|`context`|Must match webpack [`context`](https://webpack.github.io/docs/configuration.html#context) configuration. [`css-loader`](https://github.com/webpack/css-loader) inherits `context` values from webpack. Other CSS module implementations might use different context resolution logic.|`process.cwd()`|
-|`filetypes`|Configure [postcss syntax loaders](https://github.com/postcss/postcss#syntaxes) like sugerss, LESS and SCSS. ||
-|`webpackHotModuleReloading`|Enables hot reloading of CSS in webpack|`false`|
-|`generateScopedName`|Refer to [Generating scoped names](https://github.com/css-modules/postcss-modules#generating-scoped-names)|`[path]___[name]__[local]___[hash:base64:5]`|
-|`exclude`| a RegExp that will exclude otherwise included files e.g., to exclude all styles from node_modules `exclude: 'node_modules'`|
+Configure the options for the plugin within your `.babelrc` as follows:
+
+```json
+{
+  "plugins": [
+    ["react-css-modules", {
+      "option": "value"
+    }]
+  ]
+}
+
+```
+
+### Options
+
+|Name|Type|Description|Default|
+|---|---|---|---|
+|`context`|`string`|Must match webpack [`context`](https://webpack.js.org/configuration/entry-context/#context) configuration. [`css-loader`](https://github.com/webpack/css-loader) inherits `context` values from webpack. Other CSS module implementations might use different context resolution logic.|`process.cwd()`|
+|`exclude`|`string`|A RegExp that will exclude otherwise included files e.g., to exclude all styles from node_modules `exclude: 'node_modules'`|
+|`filetypes`|`?FiletypesConfigurationType`|Configure [postcss syntax loaders](https://github.com/postcss/postcss#syntaxes) like sugarss, LESS and SCSS and extra plugins for them. ||
+|`generateScopedName`|`?GenerateScopedNameConfigurationType`|Refer to [Generating scoped names](https://github.com/css-modules/postcss-modules#generating-scoped-names). If you use this option, make sure it matches the value of `localIdentName` in webpack config. See this [issue](https://github.com/gajus/babel-plugin-react-css-modules/issues/108#issuecomment-334351241) |`[path]___[name]__[local]___[hash:base64:5]`|
+|`removeImport`|`boolean`|Remove the matching style import. This option is used to enable server-side rendering.|`false`|
+|`webpackHotModuleReloading`|`boolean`|Enables hot reloading of CSS in webpack|`false`|
+|`handleMissingStyleName`|`"throw"`, `"warn"`, `"ignore"`|Determines what should be done for undefined CSS modules (using a `styleName` for which there is no CSS module defined).  Setting this option to `"ignore"` is equivalent to setting `errorWhenNotFound: false` in [react-css-modules](https://github.com/gajus/react-css-modules#errorwhennotfound). |`"throw"`|
+|`attributeNames`|`?AttributeNameMapType`|Refer to [Custom Attribute Mapping](#custom-attribute-mapping)|`{"styleName": "className"}`|
+|`skip`|`boolean`|Whether to apply plugin if no matching `attributeNames` found in the file|`false`|
+|`autoResolveMultipleImports`|`boolean`|Allow multiple anonymous imports if `styleName` is only in one of them.|`false`|
 
 Missing a configuration? [Raise an issue](https://github.com/gajus/babel-plugin-react-css-modules/issues/new?title=New%20configuration:).
 
 > Note:
 > The default configuration should work out of the box with the [css-loader](https://github.com/webpack/css-loader).
+
+#### Option types (flow)
+
+```js
+type FiletypeOptionsType = {|
+  +syntax: string,
+  +plugins?: $ReadOnlyArray<string | $ReadOnlyArray<[string, mixed]>>
+|};
+
+type FiletypesConfigurationType = {
+  [key: string]: FiletypeOptionsType
+};
+
+type GenerateScopedNameType = (localName: string, resourcePath: string) => string;
+
+type GenerateScopedNameConfigurationType = GenerateScopedNameType | string;
+
+type AttributeNameMapType = {
+  [key: string]: string
+};
+
+```
 
 ### Configurate syntax loaders
 
@@ -197,9 +243,46 @@ To add support for different CSS syntaxes (e.g. SCSS), perform the following two
 
   ```json
   "filetypes": {
-    ".scss": "postcss-scss"
+    ".scss": {
+      "syntax": "postcss-scss"
+    }
   }
   ```
+
+  And optionaly specify extra plugins
+
+  ```json
+  "filetypes": {
+    ".scss": {
+      "syntax": "postcss-scss",
+      "plugins": [
+        "postcss-nested"
+      ]
+    }
+  }
+  ```
+
+  Postcss plugins can have options specified by wrapping the name and an options object in an array inside your config
+
+  ```json
+    "plugins": [
+      ["postcss-import-sync2", {
+        "path": ["src/styles", "shared/styles"]
+      }],
+      "postcss-nested"
+    ]
+  ```
+
+
+### Custom Attribute Mapping
+
+You can set your own attribute mapping rules using the `attributeNames` option.
+
+It's an object, where keys are source attribute names and values are destination attribute names.
+
+For example, the [&lt;NavLink&gt;](https://github.com/ReactTraining/react-router/blob/master/packages/react-router-dom/docs/api/NavLink.md) component from [React Router](https://github.com/ReactTraining/react-router) has a `activeClassName` attribute to accept an additional class name. You can set `"attributeNames": { "activeStyleName": "activeClassName" }` to transform it.
+
+The default `styleName` -> `className` transformation **will not** be affected by an `attributeNames` value without a `styleName` key. Of course you can use `{ "styleName": "somethingOther" }` to change it, or use `{ "styleName": null }` to disable it.
 
 ## Installation
 
@@ -209,13 +292,28 @@ When `babel-plugin-react-css-modules` cannot resolve CSS module at a compile tim
 npm install babel-plugin-react-css-modules --save
 ```
 
+
+### React Native
+
+If you'd like to get this working in React Native, you're going to have to allow custom import extensions, via a `rn-cli.config.js` file:
+
+```js
+module.exports = {
+  getAssetExts() {
+    return ["scss"];
+  }
+}
+```
+
+Remember, also, that the bundler caches things like plugins and presets. If you want to change your `.babelrc` (to add this plugin) then you'll want to add the `--reset-cache` flag to the end of the package command.
+
 ### Demo
 
 ```bash
 git clone git@github.com:gajus/babel-plugin-react-css-modules.git
 cd ./babel-plugin-react-css-modules/demo
 npm install
-webpack-dev-server
+npm start
 ```
 
 ```bash
@@ -352,6 +450,19 @@ const _styleModuleImportMap = {
 
 ## FAQ
 
+### How to migrate from react-css-modules to babel-plugin-react-css-modules?
+
+Follow the following steps:
+
+* Remove `react-css-modules`.
+* Add `babel-plugin-react-css-modules`.
+* Configure `.babelrc` (see [Configuration](#configuration)).
+* Remove all uses of the `cssModules` decorator and/or HoC.
+
+If you are still having problems, refer to one of the user submitted guides:
+
+* [Porting from react-css-modules to babel-plugin-react-css-modules (with Less)](http://www.jjinux.com/2018/04/javascript-porting-from-react-css.html)
+
 ### How to reference multiple CSS modules?
 
 `react-css-modules` had an option [`allowMultiple`](https://github.com/gajus/react-css-modules#allowmultiple). `allowMultiple` allows multiple CSS module names in a `styleName` declaration, e.g.
@@ -362,20 +473,20 @@ const _styleModuleImportMap = {
 
 This behaviour is enabled by default in `babel-plugin-react-css-modules`.
 
-## How to live reload the CSS?
+### How to live reload the CSS?
 
-`babel-plugin-react-css-modules` utilises webpack [Hot Module Replacement](https://webpack.github.io/docs/hot-module-replacement.html) (HMR) to live reload the CSS.
+`babel-plugin-react-css-modules` utilises webpack [Hot Module Replacement](https://webpack.js.org/concepts/hot-module-replacement/#root) (HMR) to live reload the CSS.
 
 To enable live reloading of the CSS:
 
 * Enable [`webpackHotModuleReloading`](#configuration) `babel-plugin-react-css-modules` configuration.
-* Configure `webpack` to use HMR. Use [`--hot`](https://webpack.github.io/docs/webpack-dev-server.html) option if you are using `webpack-dev-server`.
+* Configure `webpack` to use HMR. Use [`--hot`](https://webpack.js.org/configuration/dev-server/#root) option if you are using `webpack-dev-server`.
 * Use [`style-loader`](https://github.com/webpack/style-loader) to load the style sheets.
 
 > Note:
 >
-> This enables live reloading of the CSS. To enable HMR of the React components, refer to the [Hot Module Replacement - React](https://webpack.js.org/guides/hmr-react/) guide.
+> This enables live reloading of the CSS. To enable HMR of the React components, refer to the [Hot Module Replacement - React](https://webpack.js.org/guides/hot-module-replacement/#other-code-and-frameworks) guide.
 
 > Note:
-> 
+>
 > This is a [webpack](https://webpack.github.io/) specific option. If you are using `babel-plugin-react-css-modules` in a different setup and require CSS live reloading, raise an issue describing your setup.

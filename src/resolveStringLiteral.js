@@ -5,39 +5,46 @@ import {
   isStringLiteral,
   JSXAttribute,
   stringLiteral
-} from 'babel-types';
+} from '@babel/types';
 import conditionalClassMerge from './conditionalClassMerge';
 import getClassName from './getClassName';
 import type {
-  StyleModuleImportMapType
+  StyleModuleImportMapType,
+  GetClassNameOptionsType
 } from './types';
 
 /**
  * Updates the className value of a JSX element using a provided styleName attribute.
  */
-export default (path: Object, styleModuleImportMap: StyleModuleImportMapType, styleNameAttribute: JSXAttribute): void => {
-  const classNameAttribute = path.node.openingElement.attributes
+export default (
+  path: *,
+  styleModuleImportMap: StyleModuleImportMapType,
+  sourceAttribute: JSXAttribute,
+  destinationName: string,
+  options: GetClassNameOptionsType
+): void => {
+  const resolvedStyleName = getClassName(sourceAttribute.value.value, styleModuleImportMap, options);
+
+  const destinationAttribute = path.node.openingElement.attributes
     .find((attribute) => {
-      return typeof attribute.name !== 'undefined' && attribute.name.name === 'className';
+      return typeof attribute.name !== 'undefined' && attribute.name.name === destinationName;
     });
 
-  const resolvedStyleName = getClassName(styleNameAttribute.value.value, styleModuleImportMap);
-
-  if (classNameAttribute) {
-    if (isStringLiteral(classNameAttribute.value)) {
-      classNameAttribute.value.value += ' ' + resolvedStyleName;
-    } else if (isJSXExpressionContainer(classNameAttribute.value)) {
-      classNameAttribute.value.expression = conditionalClassMerge(
-        classNameAttribute.value.expression,
+  if (destinationAttribute) {
+    if (isStringLiteral(destinationAttribute.value)) {
+      destinationAttribute.value.value += ' ' + resolvedStyleName;
+    } else if (isJSXExpressionContainer(destinationAttribute.value)) {
+      destinationAttribute.value.expression = conditionalClassMerge(
+        destinationAttribute.value.expression,
         stringLiteral(resolvedStyleName)
       );
     } else {
-      throw new Error('Unexpected attribute value.');
+      throw new Error('Unexpected attribute value:' + destinationAttribute.value);
     }
 
-    path.node.openingElement.attributes.splice(path.node.openingElement.attributes.indexOf(styleNameAttribute), 1);
+    path.node.openingElement.attributes.splice(path.node.openingElement.attributes.indexOf(sourceAttribute), 1);
   } else {
-    styleNameAttribute.name.name = 'className';
-    styleNameAttribute.value.value = resolvedStyleName;
+    sourceAttribute.name.name = destinationName;
+    sourceAttribute.value.value = resolvedStyleName;
   }
 };

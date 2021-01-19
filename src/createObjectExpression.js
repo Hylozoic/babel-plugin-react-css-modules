@@ -2,10 +2,10 @@
 
 import BabelTypes, {
   ObjectExpression
-} from 'babel-types';
+} from '@babel/types';
 
 type InputObjectType = {
-  [key: string]: string | InputObjectType
+  [key: string]: *
 };
 
 /**
@@ -26,13 +26,18 @@ const createObjectExpression = (t: BabelTypes, object: InputObjectType): ObjectE
       newValue = t.stringLiteral(value);
     } else if (typeof value === 'object') {
       newValue = createObjectExpression(t, value);
+    } else if (typeof value === 'boolean') {
+      newValue = t.booleanLiteral(value);
+    } else if (typeof value === 'undefined') {
+      // eslint-disable-next-line no-continue
+      continue;
     } else {
-      throw new Error('Unexpected type.');
+      throw new TypeError('Unexpected type: ' + typeof value);
     }
 
     properties.push(
       t.objectProperty(
-        t.identifier('\'' + name + '\''),
+        t.stringLiteral(name),
         newValue
       )
     );
